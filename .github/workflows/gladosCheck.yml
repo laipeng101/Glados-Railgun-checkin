@@ -10,7 +10,8 @@ on:
         default: false
   schedule:
     # UTC: 01:18 and 04:18 = Asia/Shanghai: 09:18 and 12:18.
-    - cron: '18 1,4 * * *'
+    - cron: '18 1 * * *'
+    - cron: '18 4 * * *'
 
 permissions:
   contents: read
@@ -22,6 +23,7 @@ concurrency:
 jobs:
   daily:
     name: Decide whether checkin is needed
+    continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 3
     permissions:
@@ -48,8 +50,12 @@ jobs:
 
   checkin:
     name: GLaDOS checkin
+    continue-on-error: true
     needs: daily
     if: needs.daily.outputs.should_run == 'true'
+    outputs:
+      exit_code: ${{ steps.attempt.outputs.exit_code }}
+      attempt_outcome: ${{ steps.attempt.outcome }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -84,8 +90,18 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
 
+      - name: Test authentication classification on manual runs
+        if: github.event_name == 'workflow_dispatch'
+        run: python -B -m unittest discover -s runtime_tests -v
+
       - name: Running checkin
-        run: python checkin.py
+        id: attempt
+        run: |
+          set +e
+          python checkin.py
+          checkin_exit=$?
+          echo "exit_code=$checkin_exit" >> "$GITHUB_OUTPUT"
+          exit "$checkin_exit"
         env:
           GLADOS_COOKIES: ${{ secrets.GLADOS_COOKIES }}
           GLADOS_EXCHANGE_PLAN: ${{ secrets.GLADOS_EXCHANGE_PLAN }}
@@ -95,6 +111,7 @@ jobs:
 
   keepalive:
     name: Keep scheduled workflow active
+    continue-on-error: true
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 2
@@ -103,3 +120,23 @@ jobs:
     steps:
       - name: Keep alive
         uses: liskin/gh-workflow-keepalive@f72ff1a1336129f29bf0166c0fd0ca6cf1bcb38c # v1.2.1
+
+  notification:
+    name: Report actionable checkin failures
+    needs: [daily, checkin]
+    if: ${{ always() && !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Report notification decision
+        run: python3 tools/checkin_notification_policy.py
+        env:
+          DAILY_SHOULD_RUN: ${{ needs.daily.outputs.should_run }}
+          CHECKIN_OUTCOME: ${{ needs.checkin.outputs.attempt_outcome }}
+          CHECKIN_EXIT_CODE: ${{ needs.checkin.outputs.exit_code }}
+          CHECKIN_SCHEDULE: ${{ github.event.schedule }}

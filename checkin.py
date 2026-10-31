@@ -12,6 +12,10 @@ from urllib3.util.retry import Retry
 from logging_config import init_logger
 
 
+EXIT_FAILURE = 1
+EXIT_AUTHENTICATION_FAILURE = 2
+
+
 class CheckinStatus(Enum):
     """签到状态"""
 
@@ -204,6 +208,7 @@ class API:
         self.domain: str = domain
         self.cookie_index: int = cookie_index
         self.verbose: bool = verbose
+        self.authentication_failed = False
         self.headers: Dict[str, str] = self._get_headers()
         self._device_ua_cache: Dict[str, str] = {}
         self.session = requests.Session()
@@ -286,6 +291,8 @@ class API:
                 return None
 
             if not response.ok:
+                if response.status_code in (401, 403):
+                    self.authentication_failed = True
                 self._log("warning", LogEmoji.WARNING, f"向 {url} 发起的请求失败，状态码 {response.status_code}。响应内容: {response.text}", force=True)
                 return None
             return response
@@ -353,6 +360,8 @@ class API:
             return result
 
         code = raw.get("code", -2)
+        if raw.get("code") == -2:
+            self.authentication_failed = True
         message = raw.get("message", "无消息字段")
         points = str(raw.get("points", 0))
 
@@ -401,6 +410,8 @@ class API:
         if response:
             data = response.json()
             code = data.get("code", -2)
+            if data.get("code") == -2:
+                self.authentication_failed = True
             left_days = data.get("data", {}).get("leftDays", None)
 
             if left_days is not None:
@@ -472,6 +483,7 @@ class CheckinResult:
     points_total: str = "None"
     exchange: str = "未兑换"
     code: CheckinStatus = CheckinStatus.FAILURE  # 0: 成功, 1: 重复, -2: 失败
+    authentication_failed: bool = False
 
     def to_dict(self) -> Dict[str, Union[str, CheckinStatus]]:
         result_dict = asdict(self)
@@ -631,12 +643,19 @@ class Checker:
             self._log(cookie_idx, domain, LogEmoji.STATUS, "查询剩余天数")
             days_str, status_code = api.get_status(cookie)
             result.days = days_str
+            if api.authentication_failed:
+                result.authentication_failed = True
+                result.status = "凭据失效或访问被拒绝"
+                return result
 
             self._log(cookie_idx, domain, LogEmoji.CHECKIN, "执行签到")
             checkin_result = api.checkin(cookie)
             result.status = checkin_result["status"]
             result.code = checkin_result.get("code", CheckinStatus.FAILURE)
             result.points = str(checkin_result.get("points", "0"))
+            if result.code == CheckinStatus.FAILURE and api.authentication_failed:
+                result.authentication_failed = True
+                return result
 
             self._log(cookie_idx, domain, LogEmoji.POINTS, "查询总积分")
             points_str, points_num = api.get_points(cookie)
@@ -711,7 +730,7 @@ def main():
         if not config.cookies_list:
             logger.error(f"{LogEmoji.ERROR} 未找到有效的 Cookie, 退出程序。")
             payload = {"title": "# 未找到 cookies!", "rows": []}
-            exit_code = 1
+            exit_code = EXIT_AUTHENTICATION_FAILURE
         else:
             logger.info(f"{LogEmoji.START} 步骤 2: 执行签到")
             checker = Checker(config)
@@ -720,13 +739,17 @@ def main():
             logger.info(f"{LogEmoji.START} 步骤 3: 格式化结果")
             payload = checker.format_results()
             if payload["fail"] > 0:
-                exit_code = 1
+                exit_code = (
+                    EXIT_AUTHENTICATION_FAILURE
+                    if any(result.authentication_failed for result in checker.results)
+                    else EXIT_FAILURE
+                )
             logger.info(f"\n{LogEmoji.END} ========== 签到总结 ==========\n{payload['title']}\n{render_payload(payload)}")
 
     except Exception as e:
         logger.error(f"{LogEmoji.ERROR} 主程序执行过程中发生未预期的错误: {e}")
         payload = {"title": "# 脚本执行出错", "rows": [], "note": str(e)}
-        exit_code = 1
+        exit_code = EXIT_FAILURE
 
     logger.info(f"{LogEmoji.START} 步骤 4: 发送推送")
     push_service = PushService(config if "config" in locals() else None)

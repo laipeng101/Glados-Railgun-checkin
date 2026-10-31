@@ -31,8 +31,23 @@ This fork uses the upstream Cookie-based GitHub Actions deployment described in
 - Retain upstream device-platform matching. HTTP retries are limited to GET
   queries; checkin POSTs and rate-limit responses are not automatically retried.
   The upstream single retry for an explicit device-platform mismatch remains.
-- Missing or expired credentials and failed checkins fail the Actions job.
-  An explicit already-checked-in response counts as success.
+- Missing credentials, explicit authentication failures (`code=-2` or HTTP
+  401/403) use checkin exit code 2. Other failures use exit code 1. An explicit
+  already-checked-in response counts as success. If authentication has already
+  failed during the initial status query, no checkin POST or points query follows.
+- Native GitHub Actions email notifications are used. In personal Notification
+  settings, enable Actions Email with **Only notify for failed workflows**.
+  Cookie/authentication failures produce an actionable workflow failure at once.
+  Other first-window failures wait quietly for the afternoon fallback; a failed
+  fallback (including an unreadable daily history or setup failure) fails the
+  workflow and triggers the native email. Manual failures are reported at once.
+- Successful and already-completed/skipped checkins keep the workflow successful
+  and send no email. A keepalive-only failure does not send a checkin alert.
+  Attempt jobs use job-level `continue-on-error`, preserving their actual step
+  results for the daily guard. The final notification job controls the workflow's
+  actionable failure status; the first failed attempt remains visible in logs.
+- The two cron entries are separate so the primary/fallback identity survives
+  GitHub queue delays. Their times and random delay windows are unchanged.
 - Automatic points exchange and third-party notifications remain optional and
   inactive unless their corresponding secrets are configured.
 - Action versions are pinned. The keepalive job has separate, repository-scoped
