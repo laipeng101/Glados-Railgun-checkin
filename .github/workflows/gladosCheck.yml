@@ -2,66 +2,70 @@ name: auto check
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ master ]
-    paths-ignore:
-      - 'README.md'
-      - 'imgs/**'
   schedule:
-    - cron: '18 9,12 * * *'
-      timezone: 'Asia/Shanghai'
+    # UTC: 01:18 and 04:18 = Asia/Shanghai: 09:18 and 12:18.
+    - cron: '18 1,4 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: glados-checkin
+  cancel-in-progress: false
 
 jobs:
-  build:
-    name: glados/railgun checkin
+  checkin:
+    name: GLaDOS checkin
     runs-on: ubuntu-latest
-      
-    permissions:
-      contents: read
-      actions: write
-
-    strategy:
-      matrix:
-        python-version: [3.13]
-
-    # 这里加入全局环境变量，强制后续所有第三方 actions 兼容 Node.js 24 运行环境
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
+    timeout-minutes: 35
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@v6
+      - name: Random delay for scheduled runs
+        if: github.event_name == 'schedule'
+        env:
+          JITTER_MAX_SECONDS: ${{ vars.GLADOS_JITTER_MAX_SECONDS || '900' }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import random
+          import time
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v6
-      with:
-        python-version: ${{ matrix.python-version }}
+          maximum = int(os.environ['JITTER_MAX_SECONDS'])
+          if not 0 <= maximum <= 900:
+              raise ValueError('GLADOS_JITTER_MAX_SECONDS must be between 0 and 900')
+          delay = random.SystemRandom().randint(0, maximum)
+          print(f'Scheduled run: waiting {delay} seconds before checkin', flush=True)
+          time.sleep(delay)
+          PY
 
-    # 安装 python 库
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+      - name: Checkout code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
-    # 执行 签到脚本
-    - name: Running checkin
-      run: |
-        python checkin.py
-      env:
-        PUSHDEER_SENDKEY: ${{ secrets.PUSHDEER_SENDKEY }}
-        SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
-        GLADOS_COOKIES: ${{ secrets.GLADOS_COOKIES }}
-        GLADOS_EXCHANGE_PLAN: ${{ secrets.GLADOS_EXCHANGE_PLAN }}
-        GLADOS_VERBOSE: ${{ secrets.GLADOS_VERBOSE }}
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
 
-    - name: Keep alive
-      uses: liskin/gh-workflow-keepalive@v1 
-        
-    - name: Delete workflow runs
-      uses: Mattraks/delete-workflow-runs@v2
-      with:
-        token: ${{ github.token }}
-        repository: ${{ github.repository }}
-        retain_days: 7
-        keep_minimum_runs: 7
-        delete_run_by_conclusion_pattern: success
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Running checkin
+        run: python checkin.py
+        env:
+          GLADOS_COOKIES: ${{ secrets.GLADOS_COOKIES }}
+          GLADOS_EXCHANGE_PLAN: ${{ secrets.GLADOS_EXCHANGE_PLAN }}
+          GLADOS_VERBOSE: 'false'
+          PUSHDEER_SENDKEY: ${{ secrets.PUSHDEER_SENDKEY }}
+          SERVERCHAN_SENDKEY: ${{ secrets.SERVERCHAN_SENDKEY }}
+
+  keepalive:
+    name: Keep scheduled workflow active
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      actions: write
+    steps:
+      - name: Keep alive
+        uses: liskin/gh-workflow-keepalive@f72ff1a1336129f29bf0166c0fd0ca6cf1bcb38c # v1.2.1
