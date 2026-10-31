@@ -11,6 +11,23 @@ This fork uses the upstream Cookie-based GitHub Actions deployment described in
   09:18–09:33 and 12:18–12:33; GitHub queueing may delay them further.
 - Optional repository variable `GLADOS_JITTER_MAX_SECONDS` accepts an integer
   from 0 to 900. Leaving it unset uses 900. Manual runs skip the random delay.
+- Before waiting or contacting GLaDOS, inspect this workflow's GitHub job
+  history for an actual successful `Running checkin` step on the current
+  Asia/Shanghai date. Success and an explicit already-checked-in response both
+  count. Once confirmed, later runs skip the entire checkin job, including its
+  random delay, dependency installation, status queries and checkin request.
+- If no successful checkin is recorded today, the next candidate may perform
+  the first attempt or make up for a failed/missed earlier attempt. Skipped
+  jobs never count as new success records; yesterday's success does not block
+  a new day. Workflow concurrency serializes overlapping triggers.
+- The history reader has only repository Contents/Actions read permission and
+  receives no GLaDOS credentials. History/API errors stop that run rather than
+  risk a duplicate request. Keep today's run history; deleting it removes the
+  evidence used to avoid repeats. A successful step spanning midnight requires
+  manual inspection because its exact checkin date is ambiguous.
+- Manual runs follow the same daily check by default. The optional
+  `force_checkin` checkbox bypasses it only when explicitly selected for
+  debugging; it can send an additional request even after today's success.
 - Retain upstream device-platform matching. HTTP retries are limited to GET
   queries; checkin POSTs and rate-limit responses are not automatically retried.
   The upstream single retry for an explicit device-platform mismatch remains.

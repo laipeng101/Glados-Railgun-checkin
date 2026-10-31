@@ -2,6 +2,12 @@ name: auto check
 
 on:
   workflow_dispatch:
+    inputs:
+      force_checkin:
+        description: 'Force checkin even if already completed today (debugging only)'
+        type: boolean
+        required: false
+        default: false
   schedule:
     # UTC: 01:18 and 04:18 = Asia/Shanghai: 09:18 and 12:18.
     - cron: '18 1,4 * * *'
@@ -14,8 +20,36 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  daily:
+    name: Decide whether checkin is needed
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      should_run: ${{ steps.guard.outputs.should_run }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Test daily decision on manual runs
+        if: github.event_name == 'workflow_dispatch'
+        run: python3 -B -m unittest discover -s tests -v
+
+      - name: Check today's successful checkin history
+        id: guard
+        run: python3 tools/daily_checkin_guard.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE_CHECKIN: ${{ github.event_name == 'workflow_dispatch' && inputs.force_checkin || false }}
+
   checkin:
     name: GLaDOS checkin
+    needs: daily
+    if: needs.daily.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
