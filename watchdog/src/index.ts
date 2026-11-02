@@ -1,4 +1,5 @@
 import { runWatchdog, stageForCron, verifyDispatch, type Stage, type Config, type Services } from "./core.ts";
+import { fetchFromWorker } from "./platform.ts";
 
 function config(env: Env): Config {
   return { repository: env.REPOSITORY, workflowId: env.WORKFLOW_ID, ref: env.WORKFLOW_REF, token: env.GITHUB_ACTIONS_TOKEN || "" };
@@ -13,7 +14,7 @@ async function sendEmail(env: Env, subject: string, text: string) {
 }
 function services(env: Env): Services {
   return {
-    request: fetch,
+    request: fetchFromWorker,
     getState: key => env.WATCHDOG_STATE.get(key),
     putState: (key, value) => env.WATCHDOG_STATE.put(key, value, { expirationTtl: 7 * 86_400 }),
     notify: async (subject, text) => { await sendEmail(env, subject, text); },
@@ -29,7 +30,7 @@ async function verifySetup(env: Env, scheduledTime: number) {
   let step = "history";
   try {
     const history = await execute(env, "recovery", scheduledTime, true);
-    if (history.action !== "already_succeeded") throw new Error("Setup requires a confirmed successful day before probing dispatch");
+    if (history.action !== "already_succeeded") throw new Error(`Setup history verification failed: ${history.reason || history.action}`);
     step = "dispatch";
     const probe = await verifyDispatch(config(env), services(env), Date.now());
     console.log(JSON.stringify(probe));

@@ -165,9 +165,11 @@ export async function runWatchdog(config: Config, services: Services, stage: Sta
   };
   let observation: Observation;
   try { observation = await inspect(github, day, now); }
-  catch {
-    if (stage === "recovery") return { action: "recovery_deferred", day, reason: "GitHub history unavailable; waiting for final recovery" };
-    return alert("Final recovery/history verification was unavailable. Inspect the workflow and the watcher's GitHub Actions token.");
+  catch (error) {
+    const known = error instanceof Error && /^(GitHub history unavailable \(HTTP \d+\)|Incomplete or excessive GitHub history|Malformed GitHub history|Truncated GitHub history|Missing job step history|Inconsistent successful checkin timestamps|A successful checkin crossed midnight; automatic recovery is unsafe|Missing or ambiguous history timestamp|Invalid history timestamp|Response exceeds safe history limit)$/.test(error.message);
+    const reason = known && error instanceof Error ? error.message : `GitHub transport/history unavailable (${error instanceof TypeError ? "TypeError" : error instanceof SyntaxError ? "SyntaxError" : "transport error"})`;
+    if (stage === "recovery") return { action: "recovery_deferred", day, reason };
+    return alert(`Final recovery/history verification was unavailable: ${reason}. Inspect the workflow and the watcher's GitHub Actions token.`);
   }
   if (observation.successRun) return { action: "already_succeeded", day, runId: observation.successRun };
   if (stage === "audit") {
