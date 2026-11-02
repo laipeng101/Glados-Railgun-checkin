@@ -170,3 +170,15 @@ test("setup probe tests write permission once with the normal daily guard enable
   assert.equal(f.posts().length, 1);
   assert.equal(JSON.parse(f.posts()[0].body || "null").inputs.force_checkin, false);
 });
+test("checkpoint read failure cannot suppress a final-failure email", async () => {
+  const f = fixture({ historyStatus: 503 });
+  f.services.getState = async () => { throw new Error("KV unavailable"); };
+  assert.equal((await runWatchdog(CONFIG, f.services, "audit", NOW, NOW)).action, "alerted");
+  assert.equal(f.notifications.length, 1);
+});
+test("checkpoint write failure after email success does not resend the email", async () => {
+  const f = fixture();
+  f.services.putState = async () => { throw new Error("KV unavailable"); };
+  assert.equal((await runWatchdog(CONFIG, f.services, "audit", NOW, NOW)).action, "alerted");
+  assert.equal(f.notifications.length, 1);
+});

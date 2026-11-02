@@ -154,9 +154,13 @@ export async function runWatchdog(config: Config, services: Services, stage: Sta
   const alert = async (reason: string): Promise<Result> => {
     if (dryRun) return { action: "would_alert", day, reason };
     const key = `alert:${day}`;
-    if (await services.getState(key)) return { action: "alert_already_reported", day };
+    let reported: string | null = null;
+    // Notification checkpoints are best-effort. Their own outage must not
+    // suppress an otherwise deliverable final-failure email.
+    try { reported = await services.getState(key); } catch { /* Still alert. */ }
+    if (reported) return { action: "alert_already_reported", day };
     await services.notify(`GLaDOS final recovery unconfirmed (${day})`, `No successful GLaDOS checkin was confirmed for ${day} (Asia/Shanghai).\n${reason}\nInspect https://github.com/${config.repository}/actions\nThis checker never receives your GLaDOS Cookie.`);
-    await services.putState(key, "reported");
+    try { await services.putState(key, "reported"); } catch { /* Email was sent. */ }
     return { action: "alerted", day, reason };
   };
   let observation: Observation;
