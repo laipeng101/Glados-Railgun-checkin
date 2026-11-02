@@ -88,8 +88,10 @@ class GitHub {
     const rows: Record<string, unknown>[] = [];
     for (let page = 1; page <= MAX_PAGES; page++) {
       const params = new URLSearchParams({ ...query, per_page: String(PAGE_SIZE), page: String(page) });
+      // Workers rejects redirect:"error" before I/O. Manual mode exposes 3xx
+      // to the non-2xx check without forwarding the Authorization header.
       const response = await this.request(`https://api.github.com/repos/${this.config.repository}/actions/${path}?${params}`, {
-        headers: this.headers(), redirect: "error", signal: AbortSignal.timeout(15_000),
+        headers: this.headers(), redirect: "manual", signal: AbortSignal.timeout(15_000),
       });
       if (!response.ok) throw new Error(`GitHub history unavailable (HTTP ${response.status})`);
       const data = await boundedJson(response);
@@ -107,7 +109,7 @@ class GitHub {
     if (!this.config.token) throw new Error("GitHub Actions token is not configured");
     // Never retry a POST: a transport error may occur after GitHub accepted it.
     const response = await this.request(`https://api.github.com/repos/${this.config.repository}/actions/workflows/${this.config.workflowId}/dispatches`, {
-      method: "POST", headers: { ...this.headers(), "Content-Type": "application/json" }, redirect: "error", signal: AbortSignal.timeout(15_000),
+      method: "POST", headers: { ...this.headers(), "Content-Type": "application/json" }, redirect: "manual", signal: AbortSignal.timeout(15_000),
       body: JSON.stringify({ ref: this.config.ref, inputs: { force_checkin: false, final_attempt: finalAttempt, checkin_day: day } }),
     });
     if (!response.ok) throw new Error(`Recovery dispatch failed (HTTP ${response.status})`);

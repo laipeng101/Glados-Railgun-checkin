@@ -17,7 +17,7 @@ function fixture(options: { runs?: Row[]; jobs?: Record<string, Row[]>; historyS
     const url = new URL(String(input));
     assert.equal(url.origin, "https://api.github.com");
     assert.equal(new Headers(init?.headers).get("Authorization"), "Bearer test-token");
-    assert.equal(init?.redirect, "error");
+    assert.equal(init?.redirect, "manual");
     const method = init?.method || "GET";
     calls.push({ url, method, body: typeof init?.body === "string" ? init.body : undefined });
     if (method === "POST") {
@@ -109,6 +109,18 @@ test("final history failure produces an independent alert exactly once", async (
   await runWatchdog(CONFIG, f.services, "audit", NOW, NOW);
   assert.equal(f.notifications.length, 1);
   assert.equal(f.posts().length, 0);
+});
+test("redirected history cannot authorize a recovery dispatch", async () => {
+  const f = fixture({ historyStatus: 302 });
+  assert.equal((await runWatchdog(CONFIG, f.services, "recovery", NOW, NOW)).action, "recovery_deferred");
+  assert.equal(f.posts().length, 0);
+});
+test("redirected dispatch fails final recovery without a second POST", async () => {
+  const f = fixture({ dispatchStatus: 307 });
+  assert.equal((await runWatchdog(CONFIG, f.services, "final", NOW, NOW)).action, "alerted");
+  await runWatchdog(CONFIG, f.services, "final", NOW, NOW);
+  assert.equal(f.posts().length, 1);
+  assert.equal(f.notifications.length, 1);
 });
 test("independent audit detects a final run that never started", async () => {
   const f = fixture();
