@@ -6,9 +6,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
-# Keep the two schedules in gladosCheck.yml separate so a delayed primary run
-# can still be identified without relying on the runner's wall clock.
-PRIMARY_SCHEDULE = "18 1 * * *"
 AUTHENTICATION_EXIT_CODE = "2"  # checkin.py: EXIT_AUTHENTICATION_FAILURE
 
 
@@ -18,16 +15,16 @@ class Decision:
     message: str
 
 
-def decide(daily_should_run, attempt_outcome, exit_code, event_name, schedule):
+def decide(daily_should_run, attempt_outcome, exit_code, event_name, schedule, final_attempt="false"):
     if exit_code == AUTHENTICATION_EXIT_CODE:
         return Decision(True, "GLaDOS credentials are missing, expired, or access was denied. Update the repository secret GLADOS_COOKIES and retry manually.")
     if daily_should_run == "false":
-        return Decision(False, "Today's checkin was already confirmed. Checkin skipped; no email notification.")
+        return Decision(False, "Checkin was already confirmed or this dated recovery request expired. Checkin skipped; no email notification.")
     if attempt_outcome == "success" and exit_code == "0":
         return Decision(False, "Checkin succeeded or was already completed. No email notification.")
-    if event_name == "schedule" and schedule == PRIMARY_SCHEDULE:
-        return Decision(False, "The primary attempt did not complete successfully. Waiting for the 12:18-12:33 Asia/Shanghai fallback; no email yet.")
-    return Decision(True, "No successful checkin was confirmed after the fallback or manual attempt. Inspect the failed attempt or daily-history job. GitHub failure email is required.")
+    if event_name == "workflow_dispatch" and final_attempt == "true":
+        return Decision(True, "The final recovery attempt could not confirm a successful checkin. Inspect the checkin or daily-history job. GitHub failure email is required.")
+    return Decision(False, "This attempt did not complete successfully. Waiting for independent recovery; no email yet.")
 
 
 def main():
@@ -37,6 +34,7 @@ def main():
         os.environ.get("CHECKIN_EXIT_CODE", ""),
         os.environ.get("GITHUB_EVENT_NAME", ""),
         os.environ.get("CHECKIN_SCHEDULE", ""),
+        os.environ.get("CHECKIN_FINAL_ATTEMPT", "false"),
     )
     print(decision.message)
     summary = os.environ.get("GITHUB_STEP_SUMMARY")

@@ -28,6 +28,15 @@ This fork uses the upstream Cookie-based GitHub Actions deployment described in
 - Manual runs follow the same daily check by default. The optional
   `force_checkin` checkbox bypasses it only when explicitly selected for
   debugging; it can send an additional request even after today's success.
+- Independent Cloudflare Cron Triggers check this same successful-step history
+  at 16:11 and 20:11 Asia/Shanghai. Only a day without verified success can
+  dispatch a recovery run. The 20:11 run sets `final_attempt=true`; recovery
+  inputs always keep `force_checkin=false` and include `checkin_day=YYYY-MM-DD`.
+  Dated requests queued beyond their Beijing day expire without GLaDOS requests.
+- At 20:56 the independent checker verifies success or a reported final failure.
+  If the final run could not start/finish or GitHub history/dispatch is unavailable,
+  a restricted Cloudflare email binding reports the unconfirmed final recovery.
+  Cloudflare never receives the GLaDOS Cookie. See [watchdog/README.md](watchdog/README.md).
 - Retain upstream device-platform matching. HTTP retries are limited to GET
   queries; checkin POSTs and rate-limit responses are not automatically retried.
   The upstream single retry for an explicit device-platform mismatch remains.
@@ -38,9 +47,11 @@ This fork uses the upstream Cookie-based GitHub Actions deployment described in
 - Native GitHub Actions email notifications are used. In personal Notification
   settings, enable Actions Email with **Only notify for failed workflows**.
   Cookie/authentication failures produce an actionable workflow failure at once.
-  Other first-window failures wait quietly for the afternoon fallback; a failed
-  fallback (including an unreadable daily history or setup failure) fails the
-  workflow and triggers the native email. Manual failures are reported at once.
+  Other native/ordinary attempt failures wait quietly for independent recovery.
+  A failed explicitly marked final recovery (including unreadable history or
+  setup failure) fails the workflow and triggers the native email. Ordinary
+  manual runs are quiet on non-authentication failures unless `final_attempt`
+  is explicitly checked. Normal success and confirmed skips remain quiet.
 - Successful and already-completed/skipped checkins keep the workflow successful
   and send no email. A keepalive-only failure does not send a checkin alert.
   Attempt jobs use job-level `continue-on-error`, preserving their actual step

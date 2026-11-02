@@ -1,4 +1,5 @@
 name: auto check
+run-name: GLaDOS ${{ inputs.checkin_day || github.event_name }} ${{ inputs.final_attempt && 'final recovery' || 'checkin' }}
 
 on:
   workflow_dispatch:
@@ -8,6 +9,16 @@ on:
         type: boolean
         required: false
         default: false
+      final_attempt:
+        description: 'Report a non-authentication failure as the final recovery attempt'
+        type: boolean
+        required: false
+        default: false
+      checkin_day:
+        description: 'Optional Asia/Shanghai day (YYYY-MM-DD); stale recovery requests expire'
+        type: string
+        required: false
+        default: ''
   schedule:
     # UTC: 01:18 and 04:18 = Asia/Shanghai: 09:18 and 12:18.
     - cron: '18 1 * * *'
@@ -47,6 +58,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           FORCE_CHECKIN: ${{ github.event_name == 'workflow_dispatch' && inputs.force_checkin || false }}
+          CHECKIN_DAY: ${{ inputs.checkin_day || '' }}
 
   checkin:
     name: GLaDOS checkin
@@ -140,3 +152,4 @@ jobs:
           CHECKIN_OUTCOME: ${{ needs.checkin.outputs.attempt_outcome }}
           CHECKIN_EXIT_CODE: ${{ needs.checkin.outputs.exit_code }}
           CHECKIN_SCHEDULE: ${{ github.event.schedule }}
+          CHECKIN_FINAL_ATTEMPT: ${{ github.event_name == 'workflow_dispatch' && inputs.final_attempt || false }}

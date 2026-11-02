@@ -118,7 +118,7 @@ class PaginationTests(unittest.TestCase):
 
 
 class EntryPointTests(unittest.TestCase):
-    def invoke(self, history=None, force="false", event="workflow_dispatch", failure=None):
+    def invoke(self, history=None, force="false", event="workflow_dispatch", failure=None, day=""):
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "output"
             summary = Path(temporary) / "summary"
@@ -127,6 +127,7 @@ class EntryPointTests(unittest.TestCase):
                 "GITHUB_REPOSITORY": "owner/repo", "GH_TOKEN": "test-token",
                 "GITHUB_RUN_ID": "99", "GITHUB_RUN_ATTEMPT": "1",
                 "GITHUB_EVENT_NAME": event, "FORCE_CHECKIN": force,
+                "CHECKIN_DAY": day,
             }
             clock = Mock(wraps=guard.datetime)
             clock.now.return_value = NOW
@@ -158,6 +159,20 @@ class EntryPointTests(unittest.TestCase):
 
     def test_schedule_cannot_force_checkin(self):
         self.assertEqual(self.invoke(force="true", event="schedule"), (1, "", 0))
+
+    def test_dated_recovery_for_today_preserves_history_guard(self):
+        self.assertEqual(self.invoke(history_with({1: [checkin_job()]}), day="2026-11-01"), (0, "should_run=false\n", 1))
+
+    def test_yesterdays_delayed_recovery_expires_without_reading_history(self):
+        self.assertEqual(self.invoke(day="2026-10-31"), (0, "should_run=false\n", 0))
+
+    def test_force_does_not_resurrect_expired_recovery(self):
+        self.assertEqual(self.invoke(day="2026-10-31", force="true"), (0, "should_run=false\n", 0))
+
+    def test_future_and_malformed_recovery_dates_fail_closed(self):
+        for day in ("2026-11-02", "20261101", "not-a-date"):
+            with self.subTest(day=day):
+                self.assertEqual(self.invoke(day=day), (1, "", 0))
 
 
 if __name__ == "__main__":

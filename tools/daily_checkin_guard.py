@@ -3,7 +3,7 @@
 import json
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
@@ -98,10 +98,19 @@ def main():
     try:
         now = datetime.now(timezone.utc)
         day = now.astimezone(BEIJING).date().isoformat()
+        requested_day = os.environ.get("CHECKIN_DAY", "")
+        if requested_day and date.fromisoformat(requested_day).isoformat() != requested_day:
+            raise HistoryUnavailable("CHECKIN_DAY must be YYYY-MM-DD")
+        if requested_day and requested_day > day:
+            raise HistoryUnavailable("A recovery request cannot target a future Beijing day")
+        expired_request = bool(requested_day and requested_day < day)
         forced = os.environ.get("FORCE_CHECKIN", "false") == "true"
         if forced and os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch":
             raise HistoryUnavailable("Only an explicit manual run can force checkin")
-        if forced:
+        if expired_request:
+            matching_run = None
+            reason = f"Recovery request for {requested_day} expired before execution on {day}. Skipping GLaDOS requests."
+        elif forced:
             matching_run = None
             reason = "Explicit manual override: checkin requested even if already completed today."
         else:
@@ -117,7 +126,7 @@ def main():
                 if matching_run is not None else
                 f"No successful checkin step found on {day} (Asia/Shanghai). Checkin or fallback is allowed."
             )
-        should_run = matching_run is None
+        should_run = not expired_request and matching_run is None
         with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
             output.write(f"should_run={str(should_run).lower()}\n")
         print(reason)

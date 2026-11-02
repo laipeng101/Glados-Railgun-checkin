@@ -1,0 +1,28 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "glados-independent-watchdog",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-02",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
+  "vars": {
+    "REPOSITORY": "laipeng101/Glados-Railgun-checkin",
+    "WORKFLOW_ID": "403045309",
+    "WORKFLOW_REF": "master",
+    "ALERT_FROM": "glados@alerts.example.com",
+    "ALERT_TO": "owner@example.com",
+    "ENABLED": "false"
+  },
+  "kv_namespaces": [
+    { "binding": "WATCHDOG_STATE", "id": "00000000000000000000000000000000" }
+  ],
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_destination_addresses": ["owner@example.com"],
+      "allowed_sender_addresses": ["glados@alerts.example.com"]
+    }
+  ],
+  "triggers": { "crons": ["11 8 * * *", "11 12 * * *", "56 12 * * *"] }
+}

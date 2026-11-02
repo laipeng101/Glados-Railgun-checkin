@@ -12,8 +12,8 @@ import checkin_notification_policy as policy
 
 
 class NotificationPolicyTests(unittest.TestCase):
-    def decision(self, *, day='true', outcome='failure', code='1', event='schedule', schedule='18 1 * * *'):
-        return policy.decide(day, outcome, code, event, schedule)
+    def decision(self, *, day='true', outcome='failure', code='1', event='schedule', schedule='18 1 * * *', final='false'):
+        return policy.decide(day, outcome, code, event, schedule, final)
 
     def test_primary_network_failure_waits_for_fallback(self):
         self.assertFalse(self.decision().notify)
@@ -21,8 +21,8 @@ class NotificationPolicyTests(unittest.TestCase):
     def test_primary_cookie_failure_notifies_immediately(self):
         self.assertTrue(self.decision(code='2').notify)
 
-    def test_failed_fallback_notifies(self):
-        self.assertTrue(self.decision(schedule='18 4 * * *').notify)
+    def test_native_fallback_waits_for_independent_recovery(self):
+        self.assertFalse(self.decision(schedule='18 4 * * *').notify)
 
     def test_successful_fallback_does_not_notify(self):
         self.assertFalse(self.decision(outcome='success', code='0', schedule='18 4 * * *').notify)
@@ -36,14 +36,25 @@ class NotificationPolicyTests(unittest.TestCase):
     def test_primary_history_or_setup_failure_waits(self):
         self.assertFalse(self.decision(day='', outcome='', code='').notify)
 
-    def test_fallback_history_or_setup_failure_notifies(self):
-        self.assertTrue(self.decision(day='', outcome='', code='', schedule='18 4 * * *').notify)
+    def test_final_history_or_setup_failure_notifies(self):
+        self.assertTrue(self.decision(day='', outcome='', code='', event='workflow_dispatch', final='true').notify)
 
-    def test_manual_failure_notifies(self):
-        self.assertTrue(self.decision(event='workflow_dispatch', schedule='').notify)
+    def test_ordinary_manual_failure_waits_without_email(self):
+        self.assertFalse(self.decision(event='workflow_dispatch', schedule='').notify)
 
-    def test_unknown_schedule_cannot_suppress_a_failure(self):
-        self.assertTrue(self.decision(schedule='changed cron').notify)
+    def test_explicit_final_failure_notifies(self):
+        self.assertTrue(self.decision(event='workflow_dispatch', schedule='', final='true').notify)
+
+    def test_schedule_cannot_claim_final_manual_input(self):
+        self.assertFalse(self.decision(final='true').notify)
+
+    def test_success_and_skip_remain_quiet_on_final_attempt(self):
+        self.assertFalse(self.decision(event='workflow_dispatch', outcome='success', code='0', final='true').notify)
+        self.assertFalse(self.decision(event='workflow_dispatch', day='false', final='true').notify)
+
+    def test_authentication_failure_notifies_in_all_windows(self):
+        for event, final in [('schedule', 'false'), ('workflow_dispatch', 'false'), ('workflow_dispatch', 'true')]:
+            self.assertTrue(self.decision(event=event, code='2', final=final).notify)
 
     def test_main_sets_native_workflow_failure_only_for_actionable_result(self):
         with tempfile.TemporaryDirectory() as temporary:
