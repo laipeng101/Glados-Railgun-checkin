@@ -135,6 +135,7 @@ jobs:
 
   notification:
     name: Report actionable checkin failures
+    continue-on-error: ${{ needs.checkin.outputs.exit_code != '2' && !(github.event_name == 'workflow_dispatch' && inputs.final_attempt) }}
     needs: [daily, checkin]
     if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
