@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { beijingDay, boundedJson, runWatchdog, stageForCron, verifyDispatch, type Config, type Services } from "../src/core.ts";
+import { beijingDay, boundedJson, runWatchdog, stageForSchedule, WATCHDOG_CRON, verifyDispatch, type Config, type Services } from "../src/core.ts";
 
 const NOW = Date.parse("2026-11-02T08:11:00Z");
 const CONFIG: Config = { repository: "laipeng101/Glados-Railgun-checkin", workflowId: "403045309", ref: "master", token: "test-token" };
@@ -48,11 +48,33 @@ function fixture(options: { runs?: Row[]; jobs?: Record<string, Row[]>; historyS
   return { services, calls, notifications, state, posts: () => calls.filter(call => call.method === "POST") };
 }
 
-test("cron windows and Beijing date are explicit", () => {
-  assert.equal(stageForCron("11 8 * * *"), "recovery");
-  assert.equal(stageForCron("11 12 * * *"), "final");
-  assert.equal(stageForCron("56 12 * * *"), "audit");
-  assert.throws(() => stageForCron("* * * * *"));
+test("one Cron preserves all three UTC windows and has one idle slot", () => {
+  for (const day of ["2026-11-02", "2026-12-31", "2027-01-01"]) {
+    for (const [slot, expected] of [["08:11", "recovery"], ["08:56", null], ["12:11", "final"], ["12:56", "audit"]] as const) {
+      assert.equal(stageForSchedule(WATCHDOG_CRON, Date.parse(`${day}T${slot}:00Z`)), expected);
+    }
+  }
+});
+test("legacy schedules are accepted only at their own planned slot during propagation", () => {
+  assert.equal(stageForSchedule("11 8 * * *", NOW), "recovery");
+  assert.equal(stageForSchedule("11 12 * * *", Date.parse("2026-11-02T12:11:00Z")), "final");
+  assert.equal(stageForSchedule("56 12 * * *", Date.parse("2026-11-02T12:56:00Z")), "audit");
+  assert.throws(() => stageForSchedule("11 8 * * *", Date.parse("2026-11-02T12:56:00Z")));
+});
+test("unknown crons and unconfigured time slots cannot select a stage", () => {
+  for (const cron of ["* * * * *", "1 5 2 11 *", "56 8 * * *"]) {
+    assert.throws(() => stageForSchedule(cron, NOW));
+  }
+  for (const slot of ["00:11", "08:10", "08:12", "12:55", "13:11", "16:11"]) {
+    assert.throws(() => stageForSchedule(WATCHDOG_CRON, Date.parse(`2026-11-02T${slot}:00Z`)));
+  }
+});
+test("invalid planned timestamps cannot authorize work", () => {
+  for (const timestamp of [NaN, Infinity, -Infinity, NOW + 0.5, Number.MAX_SAFE_INTEGER]) {
+    assert.throws(() => stageForSchedule(WATCHDOG_CRON, timestamp));
+  }
+});
+test("Beijing day remains explicit across UTC midnight", () => {
   assert.equal(beijingDay(Date.parse("2026-11-01T16:00:00Z")), "2026-11-02");
 });
 test("today's actual successful step suppresses dispatch and every notification", async () => {

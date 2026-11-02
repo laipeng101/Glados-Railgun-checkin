@@ -31,11 +31,22 @@ export function beijingDay(time: number): string {
   if (!Number.isFinite(time)) throw new Error("Invalid observation time");
   return new Date(time + BEIJING_MS).toISOString().slice(0, 10);
 }
-export function stageForCron(cron: string): Stage {
-  if (cron === "11 8 * * *") return "recovery";
-  if (cron === "11 12 * * *") return "final";
-  if (cron === "56 12 * * *") return "audit";
-  throw new Error("Unexpected watchdog cron");
+export const WATCHDOG_CRON = "11,56 8,12 * * *";
+const LEGACY_CRONS: Readonly<Record<Stage, string>> = {
+  recovery: "11 8 * * *", final: "11 12 * * *", audit: "56 12 * * *",
+};
+export function stageForSchedule(cron: string, scheduledTime: number): Stage | null {
+  if (!Number.isSafeInteger(scheduledTime)) throw new Error("Invalid scheduled time");
+  // Use the planned UTC slot, even when delivery is delayed into another window.
+  const scheduled = new Date(scheduledTime);
+  const hour = scheduled.getUTCHours(), minute = scheduled.getUTCMinutes();
+  if (cron === WATCHDOG_CRON && hour === 8 && minute === 56) return null;
+  const stage: Stage | undefined = minute === 11 && hour === 8 ? "recovery"
+    : minute === 11 && hour === 12 ? "final"
+    : minute === 56 && hour === 12 ? "audit" : undefined;
+  // Old schedules remain accepted while the Cron update propagates globally.
+  if (stage && (cron === WATCHDOG_CRON || cron === LEGACY_CRONS[stage])) return stage;
+  throw new Error("Unexpected watchdog schedule");
 }
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

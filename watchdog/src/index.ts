@@ -1,4 +1,4 @@
-import { runWatchdog, stageForCron, verifyDispatch, type Stage, type Config, type Services } from "./core.ts";
+import { runWatchdog, stageForSchedule, verifyDispatch, type Stage, type Config, type Services } from "./core.ts";
 import { fetchFromWorker } from "./platform.ts";
 
 function config(env: Env): Config {
@@ -58,9 +58,11 @@ export default {
     const mode = String(env.ENABLED);
     if (mode === "verify") { ctx.waitUntil(verifySetup(env, controller.scheduledTime)); return; }
     if (mode !== "true") { console.log('{"action":"disabled"}'); return; }
-    let stage: Stage;
-    try { stage = stageForCron(controller.cron); }
-    catch { console.log('{"action":"ignored_retired_verification_cron"}'); return; }
+    let stage: Stage | null;
+    try { stage = stageForSchedule(controller.cron, controller.scheduledTime); }
+    catch { console.log('{"action":"ignored_unexpected_schedule"}'); return; }
+    // The merged Cron also fires at 16:56 Beijing. Exit before any binding I/O.
+    if (stage === null) { console.log('{"action":"idle_tick"}'); return; }
     ctx.waitUntil(execute(env, stage, controller.scheduledTime, false));
   },
   async fetch() { return new Response("Not found", { status: 404 }); },

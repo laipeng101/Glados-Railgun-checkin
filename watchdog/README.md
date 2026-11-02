@@ -1,13 +1,21 @@
 # Independent checkin watchdog
 
-This Cloudflare Worker uses its own Cron Triggers, independently of GitHub's
+This Cloudflare Worker uses one Cron Trigger, independently of GitHub's
 scheduled-event delivery. It never receives the GLaDOS Cookie or contacts GLaDOS.
 
 | Asia/Shanghai | Action when no actual successful checkin step exists today |
 | --- | --- |
 | 16:11 | Dispatch ordinary recovery, unless another run is already active |
+| 16:56 | Idle callback: return without GitHub, KV or email operations |
 | 20:11 | Dispatch the final recovery, queuing behind an active run if necessary |
 | 20:56 | Confirm success or send an independent final-failure alert |
+
+The single UTC expression is `11,56 8,12 * * *`: four callbacks per day, with
+three business checks. Stages use `controller.scheduledTime`, not the current
+clock, so late delivery cannot turn an ordinary recovery into a final attempt
+or audit. Previous-day deliveries still expire under the existing daily guard.
+The three former expressions are accepted only at their matching planned slots
+while schedule changes propagate; they are not retained as configured triggers.
 
 The two existing GitHub schedules remain. All attempts use the same workflow
 concurrency group and daily success guard. The Worker passes `force_checkin=false`
@@ -58,8 +66,11 @@ an outage there is reported by the independent email path.
    sends one setup email to the verified recipient. Inspect KV `setup_status`,
    `last_result` and `email_verification`. An uncertain transport or email result
    fails verification and is not blindly retried.
-6. Remove the temporary cron, set `ENABLED=true` and enable only the three
-   production schedules. Delayed verification ticks are ignored in production.
+6. Remove the temporary cron, set `ENABLED=true` and enable only
+   `11,56 8,12 * * *`. Delayed verification ticks are ignored in production.
+   When migrating from three triggers, deploy the compatible handler first,
+   then replace the entire Cron list with the single expression. Cloudflare
+   schedule changes can take up to 15 minutes to propagate.
 
 Local checks:
 
@@ -67,6 +78,7 @@ Local checks:
 npm ci
 npx wrangler types
 npm test
+npm run test:runtime
 npm run typecheck
 npm run build
 ```
