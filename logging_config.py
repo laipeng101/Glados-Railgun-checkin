@@ -1,6 +1,8 @@
+from copy import copy
+import datetime
 import logging
 import logging.config
-import datetime
+import re
 
 
 def beijing_time_converter(timestamp):
@@ -20,12 +22,26 @@ LEVEL_TAGS = {
 }
 
 
+SECRET_PATTERNS = (
+    (re.compile(r'("cookie"\s*:\s*)"(?:\\.|[^"\\])*"', re.IGNORECASE), r'\1"[REDACTED]"'),
+    (re.compile(r"""\b((?:koa|gld):[\w.-]+[ \t]*=[ \t]*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^;\s"',}]+)"""),
+     r"\1[REDACTED]"),
+    (re.compile(r"\b(Bearer\s+)[A-Za-z0-9._~+/=-]+", re.IGNORECASE), r"\1[REDACTED]"),
+)
+
+
 class AlignedFormatter(logging.Formatter):
-    """将日志级别显示为固定 3 字符短标签（[W]/[I]/[E]...），保证 emoji 列对齐"""
+    """用北京时间和短级别标签格式化日志，并脱敏会话字段。"""
+
+    converter = staticmethod(beijing_time_converter)
 
     def format(self, record):
+        record = copy(record)
         record.levelname = LEVEL_TAGS.get(record.levelname, f"[{record.levelname[0]}]")
-        return super().format(record)
+        message = super().format(record)
+        for pattern, replacement in SECRET_PATTERNS:
+            message = pattern.sub(replacement, message)
+        return message
 
 
 LOGGING_CONFIG = {
@@ -54,6 +70,5 @@ LOGGING_CONFIG = {
 
 def init_logger():
     """初始化日志"""
-    logging.Formatter.converter = staticmethod(beijing_time_converter)
     logging.config.dictConfig(LOGGING_CONFIG)
     return logging.getLogger()

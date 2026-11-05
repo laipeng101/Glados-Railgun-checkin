@@ -2,6 +2,8 @@
 
 > 基于 GitHub Actions 的 GLaDOS 自动签到工具，支持多账号与多通道推送（PushDeer / Server酱）。
 
+本 fork 的签到只访问 `glados.cloud`。现有部署使用单账号、每日成功后跳过及独立补签。[部署说明](DEPLOYMENT.md)
+
 ## 文件结构
 
 ```shell
@@ -40,7 +42,7 @@
 
   > 参考格式：`koa:sess=eyJ1c2xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxAwMH0=; koa:sess.sig=xJkOxxxxxxxxxxxxxxxtnM;`
 
-- 多账号请在 `COOKIES` 中添加多个 cookies，中间使用 `&` 连接即可（例如：`c1&c2&c3`）
+- 现有的单行 Cookie 可以继续使用。需要指定提取 Cookie 时的浏览器 User-Agent 时，可使用 [JSON 账号格式](DEPLOYMENT.md#optional-json-format)。
 
 ![图片加载失败](imgs/2.png)
 ![图片加载失败](imgs/3.png)

@@ -1,4 +1,5 @@
-# GLaDOS 自动签到依赖
-requests
-pypushdeer
-serverchan-sdk
+# 约束依赖的主版本。urllib3 用于状态查询的重试策略。
+requests>=2.31,<3
+urllib3>=1.26,<3
+pypushdeer==0.0.3
+serverchan-sdk>=1.0.6,<2

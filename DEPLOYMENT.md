@@ -4,8 +4,9 @@ This fork uses the upstream Cookie-based GitHub Actions deployment described in
 [README.md](README.md), with the following settings:
 
 - One account, using only its original login domain, `glados.cloud`.
-- Store only the current session Cookie pair in the repository secret
-  `GLADOS_COOKIES`. Do not commit credentials to files or paste them into logs.
+- Store the current session Cookie pair in the repository secret
+  `GLADOS_COOKIES`. The existing single-line value works with the updated script.
+  Keep credentials in the Secret. See [optional JSON format](#optional-json-format).
 - Run at 09:18 and 12:18 Asia/Shanghai, followed by a fresh random delay of
   0–900 seconds for each scheduled run. The intended windows are therefore
   09:18–09:33 and 12:18–12:33; GitHub queueing may delay them further.
@@ -37,9 +38,11 @@ This fork uses the upstream Cookie-based GitHub Actions deployment described in
   If the final run could not start/finish or GitHub history/dispatch is unavailable,
   a restricted Cloudflare email binding reports the unconfirmed final recovery.
   Cloudflare never receives the GLaDOS Cookie. See [watchdog/README.md](watchdog/README.md).
-- Retain upstream device-platform matching. HTTP retries are limited to GET
-  queries; checkin POSTs and rate-limit responses are not automatically retried.
-  The upstream single retry for an explicit device-platform mismatch remains.
+- Send credentialed requests only to `glados.cloud` and reject redirects.
+  The status lookup must confirm login before the checkin POST. Only the status
+  GET can retry on a connection error or HTTP 500, 502, 503, or 504. With the
+  default User-Agent, an explicit device mismatch can retry the checkin once
+  with the indicated platform.
 - Missing credentials, explicit authentication failures (`code=-2` or HTTP
   401/403) use checkin exit code 2. Other failures use exit code 1. An explicit
   already-checked-in response counts as success. If authentication has already
@@ -59,8 +62,8 @@ This fork uses the upstream Cookie-based GitHub Actions deployment described in
   actionable failure status; the first failed attempt remains visible in logs.
 - The two cron entries are separate so the primary/fallback identity survives
   GitHub queue delays. Their times and random delay windows are unchanged.
-- Automatic points exchange and third-party notifications remain optional and
-  inactive unless their corresponding secrets are configured.
+- Automatic points exchange requires an explicit plan and a successful or
+  already-completed checkin. Third-party notifications require their respective secrets.
 - Action versions are pinned. The keepalive job has separate, repository-scoped
   Actions write permission and does not receive GLaDOS credentials. It keeps
   scheduled runs enabled without deleting run history.
@@ -73,3 +76,26 @@ Review the current [GLaDOS terms](https://glados.cloud/terms) before use.
 If a run reports an expired session, log in at `glados.cloud` again and update the
 existing `GLADOS_COOKIES` secret. If it reports rate limiting or an account
 restriction, stop manual retries and inspect the response before continuing.
+
+### Optional JSON format
+
+If a run reports a device mismatch, use the User-Agent from the same browser
+request that provided the Cookie. Put the JSON in the existing `GLADOS_COOKIES`
+Secret. This example contains placeholders.
+
+```json
+[
+  {
+    "name": "Main account",
+    "origin": "glados.cloud",
+    "cookie": "gld:sess=SESSION_VALUE; gld:sess.sig=SIGNATURE_VALUE",
+    "user-agent": "USER_AGENT_FROM_THE_BROWSER"
+  }
+]
+```
+
+The script uses the configured User-Agent for all GLaDOS requests for that
+account. The `origin` field may be omitted or set to `glados.cloud`. Keep one
+account in this deployment because the daily guard tracks the workflow as a whole.
+If reverting to a revision from before JSON support, restore the single-line
+Cookie format in the Secret as well. [Upstream account refactor](https://github.com/Devilstore/Glados-Railgun-checkin/commit/b9d4a91b9c2bbaea131bcc71b2766450c118468a)
