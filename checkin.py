@@ -1,6 +1,8 @@
+import hashlib
 import json
 import os
 import sys
+import time
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Tuple, Union
@@ -18,6 +20,8 @@ EXIT_AUTHENTICATION_FAILURE = 2
 LOGIN_DOMAIN = "glados.cloud"
 REQUEST_TIMEOUT = (15, 30)
 POINTS_TIMEOUT = (10, 30)
+CHALLENGE_SUFFIX = "glados-observe-v1"
+CHALLENGE_DELAY_SECONDS = 2.5
 
 
 class CheckinStatus(Enum):
@@ -40,6 +44,7 @@ class APIEndpoint(Enum):
     """API端点"""
 
     CHECKIN = "/api/user/checkin"
+    CHECKIN_CHALLENGE = "/api/user/checkin/challenge"
     STATUS = "/api/user/status"
     POINTS = "/api/user/points"
     EXCHANGE = "/api/user/exchange"
@@ -341,7 +346,10 @@ class API:
         """获取完整 URL"""
         return f"https://{self.domain}{path}"
 
-    def _make_request(self, url: str, method: str, data: Optional[Dict] = None, cookies: str = "", user_agent: Optional[str] = None) -> Optional[requests.Response]:
+    def _make_request(
+        self, url: str, method: str, data: Optional[Dict] = None, cookies: str = "",
+        user_agent: Optional[str] = None, *, json_body: bool = False,
+    ) -> Optional[requests.Response]:
         """发送 HTTP 请求"""
         session_headers = self.headers.copy()
         if user_agent:
@@ -350,9 +358,10 @@ class API:
 
         try:
             if method.upper() == "POST":
+                body = {"json": data} if json_body else {"data": data}
                 response = self.session.post(
-                    url, headers=session_headers, data=data,
-                    timeout=REQUEST_TIMEOUT, allow_redirects=False,
+                    url, headers=session_headers, timeout=REQUEST_TIMEOUT,
+                    allow_redirects=False, **body,
                 )
             elif method.upper() == "GET":
                 timeout = POINTS_TIMEOUT if url == self._get_full_url(self.POINTS_URL) else REQUEST_TIMEOUT
@@ -371,18 +380,11 @@ class API:
             self._log("error", LogEmoji.ERROR, f"向 {url} 发起请求时发生网络错误: {type(e).__name__}", force=True)
             return None
 
-    def _get_checkin_data(self) -> Dict[str, str]:
-        """获取签到数据"""
-        return {"token": self.domain}
-
     @log_method
     def checkin(self, cookies: str) -> Dict[str, Union[str, CheckinStatus]]:
         """执行签到，含设备平台自适应重试"""
-        url = self._get_full_url(self.CHECKIN_URL)
-        checkin_data = self._get_checkin_data()
-
         used_ua = self.headers["user-agent"]
-        raw = self._checkin_attempt(url, checkin_data, cookies, used_ua)
+        raw = self._checkin_attempt(cookies, used_ua)
 
         # 显式配置的 UA 用于整个会话。缺省时只针对明确的设备不匹配重试一次。
         if (
@@ -397,16 +399,56 @@ class API:
             if recover_ua and recover_ua != used_ua:
                 self._log("warning", LogEmoji.WARNING, f"设备平台不匹配 (loginDevice={login_device})，切换 UA 重试", force=True)
                 used_ua = recover_ua
-                raw = self._checkin_attempt(url, checkin_data, cookies, used_ua)
+                raw = self._checkin_attempt(cookies, used_ua)
 
         result = self._parse_checkin(raw)
         if result["code"] in (CheckinStatus.SUCCESS, CheckinStatus.REPEAT):
             self.headers["user-agent"] = used_ua
         return result
 
-    def _checkin_attempt(self, url: str, data: Dict, cookies: str, user_agent: str) -> Optional[Dict]:
+    def _checkin_challenge(self, cookies: str, user_agent: str) -> Dict[str, str]:
+        """用与签到请求相同的 Cookie 和 UA 获取 challenge。"""
+        response = self._make_request(
+            self._get_full_url(APIEndpoint.CHECKIN_CHALLENGE.value),
+            "GET", cookies=cookies, user_agent=user_agent,
+        )
+        if response is None:
+            return {}
+        try:
+            data = response.json()
+        except ValueError:
+            return {}
+        if not isinstance(data, dict):
+            return {}
+
+        code = data.get("code")
+        if type(code) is not int:
+            return {}
+        if code == CheckinStatus.FAILURE.value:
+            self.authentication_failed = True
+            self._log("error", LogEmoji.ERROR, "签到 challenge 返回无权限", force=True)
+            return {}
+        nonce = data.get("nonce")
+        if code != 0 or not isinstance(nonce, str) or not nonce.strip():
+            return {}
+
+        time.sleep(CHALLENGE_DELAY_SECONDS)
+        proof = hashlib.sha256(f"{nonce}.{CHALLENGE_SUFFIX}".encode("utf-8")).hexdigest()
+        return {"nonce": nonce, "proof": proof}
+
+    def _checkin_attempt(self, cookies: str, user_agent: str) -> Optional[Dict]:
         """发起一次签到请求并返回解析后的响应体（失败返回 None）"""
-        response = self._make_request(url, "POST", data, cookies, user_agent=user_agent)
+        challenge = self._checkin_challenge(cookies, user_agent)
+        if self.authentication_failed:
+            return None
+        if challenge:
+            self._log("info", LogEmoji.INFO, "已获取签到 challenge，按新协议提交", force=True)
+        else:
+            self._log("warning", LogEmoji.WARNING, "未取得签到 challenge，按旧协议提交（可能只获得 1 积分）", force=True)
+        response = self._make_request(
+            self._get_full_url(self.CHECKIN_URL), "POST", {"token": self.domain, **challenge},
+            cookies, user_agent=user_agent, json_body=bool(challenge),
+        )
         if response is None:
             return None
         try:

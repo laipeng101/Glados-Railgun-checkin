@@ -1,4 +1,4 @@
-name: auto check
+name: GLaDOS Check-in
 run-name: GLaDOS ${{ inputs.checkin_day || github.event_name }} ${{ inputs.final_attempt && 'final recovery' || 'checkin' }}
 
 on:

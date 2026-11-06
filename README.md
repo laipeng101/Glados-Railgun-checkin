@@ -31,18 +31,18 @@
 
 ### 配置 Secrets
 
-跳转至自己仓库的 `Settings` → `Secrets and variables` → `Action`，按需添加以下 `repository secret`：
+跳转至自己仓库的 `Settings` → `Secrets and variables` → `Actions`，按需添加以下仓库 Secret。
 
 #### 3.1 GLADOS_COOKIES（必填）
 
 对应 GLaDOS 账号 Cookie 中的有效部分，获取方式：
 
-- 在 GLaDOS 签到页面按 `F12`，切换到 `Network` 页面下，刷新
-- 点击第一个请求，在 `Request Headers` 下找到 `Cookie`，右键复制其值即可
+- 在已登录的 `glados.cloud` 签到页面打开开发者工具的 `Network`，刷新页面。
+- 查看发往 `glados.cloud` 的请求，在 `Request Headers` 中取得 `gld:sess`、`gld:sess.sig` 和 `User-Agent`。
 
-  > 参考格式：`koa:sess=eyJ1c2xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxAwMH0=; koa:sess.sig=xJkOxxxxxxxxxxxxxxxtnM;`
+  > Cookie 格式为 `gld:sess=SESSION_VALUE; gld:sess.sig=SIGNATURE_VALUE`。
 
-- 现有的单行 Cookie 可以继续使用。需要指定提取 Cookie 时的浏览器 User-Agent 时，可使用 [JSON 账号格式](DEPLOYMENT.md#optional-json-format)。
+- 建议用 [JSON 账号格式](DEPLOYMENT.md#optional-json-format) 将 Cookie、登录域名和同一浏览器的 User-Agent 一起保存在 `GLADOS_COOKIES` 中。现有的单行 Cookie 格式仍受支持。
 
 ![图片加载失败](imgs/2.png)
 ![图片加载失败](imgs/3.png)
@@ -72,6 +72,7 @@
 
 ## 更新日志
 
+- **2026-11** 添加签到 challenge 支持，使用同一账号和 User-Agent 取得 nonce 后提交 proof。
 - **2026-01**: 重构代码，添加日志输出方便定位，支持新版网址，支持配置积分兑换策略。
 - **2026-04**: 优化代码逻辑与日志输出，支持[新版域名](https://railgun.info)，在 `GLADOS_COOKIES` 中添加新版域名下的 cookies 即可使用。
 - **2026-09**: 设备平台自适应重试（无需手动配置 UA 即可自动恢复签到）；网络层自动重试与退避，降低 CI 网络抖动导致的误报失败；日志时间统一为北京时间，定时任务调整为北京时间每天 2 次并避开整点高峰；默认关闭自动兑换，需显式配置后才启用。
@@ -79,7 +80,7 @@
 
 ## 问题排查与定位
 
-大家可以通过查询 Actions 中的 running checkin 日志快速定位问题，有其他问题提交 issue。
+可在 `Actions` → `GLaDOS Check-in` → `Running checkin` 查看签到结果和 challenge 状态。若服务端识别为自动签到，实际积分可能仍只有 1 分。
 
   <img width="1684" height="844" alt="image" src="https://github.com/user-attachments/assets/45348a5f-43e4-45f5-8fdf-ce84d343b30d" />
 
